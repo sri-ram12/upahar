@@ -171,14 +171,21 @@ export default function LiveTrackingMap({
           attributionControl: false,
         });
 
-        // Add high-contrast CartoDB Voyager tiles (clean Apple Maps / Google Maps styling)
-        L.tileLayer(
-          "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-          {
-            maxZoom: 19,
-            subdomains: "abcd",
-          }
-        ).addTo(map);
+        // Basemap Tiles:
+        // Use CartoDB Voyager if an API key is provided, or fallback to clean, high-resolution OpenStreetMap tiles
+        // (Carto basemaps requires API keys at carto.com/basemaps/apikey; without a key it prints an 'API KEY REQUIRED' watermark)
+        const cartoApiKey = (process.env.NEXT_PUBLIC_CARTO_API_KEY || "").trim();
+        const tileUrl = cartoApiKey
+          ? `https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(cartoApiKey)}`
+          : "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+
+        L.tileLayer(tileUrl, {
+          maxZoom: 19,
+          subdomains: cartoApiKey ? "abcd" : "abc",
+          attribution: cartoApiKey
+            ? '&copy; <a href="https://carto.com/">CARTO</a>'
+            : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        }).addTo(map);
 
         mapInstanceRef.current = map;
         setMapLoaded(true);
