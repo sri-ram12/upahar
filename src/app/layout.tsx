@@ -47,7 +47,6 @@ export const metadata: Metadata = {
     description: "The Soul of South Indian Tiffins & Street Classics.",
     images: ["https://images.unsplash.com/photo-1668236543090-82eba5ee5976?auto=format&fit=crop&w=1200&q=80"],
   },
-  manifest: "/manifest.json",
   icons: {
     icon: "/icons/customer-192.png",
     apple: "/icons/apple-touch-customer.png",

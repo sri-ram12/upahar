@@ -236,14 +236,13 @@ export default function PwaInstallModal() {
                             <span>{deferredPrompt ? "Install PWA" : "Install to Device"}</span>
                           </button>
                         ) : (
-                          <Link
+                          <a
                             href={`${app.startUrl}?pwa=install`}
-                            onClick={handleClose}
                             className="px-3.5 py-2 rounded-xl text-xs font-black bg-stone-900 text-white hover:bg-stone-800 flex items-center gap-1.5 transition cursor-pointer shadow-xs flex-1 sm:flex-none justify-center"
                           >
                             <span>Open &amp; Install</span>
                             <ArrowRight className="w-3.5 h-3.5" />
-                          </Link>
+                          </a>
                         )}
 
                         {/* Direct Windows Desktop Shortcut (.url) Download */}

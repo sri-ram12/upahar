@@ -3,7 +3,7 @@
 import React, { useEffect, useState, createContext, useContext } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { Download, Smartphone, X, Sparkles, CheckCircle2 } from "lucide-react";
+import { Download, Smartphone, X, Sparkles, CheckCircle2, FileDown } from "lucide-react";
 import PwaInstallModal from "./PwaInstallModal";
 
 export interface BeforeInstallPromptEvent extends Event {
@@ -387,6 +387,15 @@ export function PwaPanelBanner({ className = "", variant = "floating" }: PwaPane
         >
           <Download className="w-3.5 h-3.5" />
           <span>Install</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => downloadWebShortcut(activeApp.name, activeApp.startUrl, activeApp.iconSrc)}
+          className="p-1.5 rounded-lg border border-stone-200 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 cursor-pointer shadow-xs"
+          title="Download ready-to-run Windows Desktop Shortcut (.url)"
+          aria-label="Download Windows Shortcut"
+        >
+          <FileDown className="w-3.5 h-3.5" />
         </button>
         <button
           type="button"

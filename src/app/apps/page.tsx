@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import {
   Download,
   Smartphone,
@@ -99,7 +98,7 @@ export default function AppsPage() {
         <div className="text-xs leading-relaxed">
           <strong className="font-bold text-amber-950">How Web App Installation Works:</strong>
           <span className="block mt-0.5 text-stone-700">
-            Browsers install the PWA for the specific URL route you are currently viewing. Click <strong>&quot;Open &amp; Install&quot;</strong> on any app card below to open its specific panel, or click <strong>&quot;Desktop File&quot;</strong> to immediately download a ready-to-run Windows shortcut!
+            Browsers install the PWA for the specific URL route you are currently viewing. Click <strong>&quot;Open &amp; Install&quot;</strong> on any app card below to open its specific panel with a fresh page load, where your browser will offer the dedicated install option!
           </span>
         </div>
       </div>
@@ -148,14 +147,14 @@ export default function AppsPage() {
 
               {/* Card Footer Actions */}
               <div className="p-4 bg-stone-50/80 border-t border-stone-100 flex items-center gap-2">
-                <Link
+                <a
                   href={`${app.startUrl}?pwa=install`}
                   className="flex-1 py-2.5 px-3 rounded-xl bg-stone-900 hover:bg-[#580D1A] text-white text-xs font-black flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5 text-[#DFC17B]" />
                   <span>Open &amp; Install</span>
-                  <ArrowRight className="w-3 h-3 opacity-70" />
-                </Link>
+                  <ArrowRight className="w-3.5 h-3.5 opacity-70" />
+                </a>
 
                 <button
                   type="button"

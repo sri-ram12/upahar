@@ -29,5 +29,35 @@
       "purpose": "maskable"
     }
   ],
+  "shortcuts": [
+    {
+      "name": "Admin Panel",
+      "short_name": "Admin",
+      "description": "Live orders, allocations & analytics",
+      "url": "/admin",
+      "icons": [{ "src": "/icons/admin-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Kitchen Display",
+      "short_name": "Kitchen",
+      "description": "Kitchen tickets & food ready timers",
+      "url": "/kitchen",
+      "icons": [{ "src": "/icons/kitchen-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Delivery Rider",
+      "short_name": "Rider",
+      "description": "Live delivery orders & GPS navigation",
+      "url": "/delivery",
+      "icons": [{ "src": "/icons/rider-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Developer Console",
+      "short_name": "Dev",
+      "description": "System debugger & order simulator",
+      "url": "/portal",
+      "icons": [{ "src": "/icons/dev-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
   "categories": ["food", "shopping", "lifestyle"]
 }
