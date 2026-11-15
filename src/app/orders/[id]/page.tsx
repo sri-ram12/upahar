@@ -26,6 +26,7 @@ import { useRealtimeEvents } from "@/hooks/useRealtimeEvents";
 import { useCart } from "@/context/CartContext";
 import LiveTrackingMap from "@/components/orders/LiveTrackingMap";
 import PaymentQRCard from "@/components/payment/PaymentQRCard";
+import { UPAHAR_COORDINATES, calculateDistanceKm } from "@/lib/delivery-zones";
 
 function WhatsAppIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
@@ -568,7 +569,20 @@ export default function OrderTrackingPage({ params }: PageProps) {
                         }),
                       });
                       if (res.ok) {
-                        setOrder((prev) => (prev ? { ...prev, lat, lng } : prev));
+                        const data = await res.json();
+                        const realDist =
+                          data.distanceKm ||
+                          calculateDistanceKm(
+                            UPAHAR_COORDINATES.lat,
+                            UPAHAR_COORDINATES.lng,
+                            lat,
+                            lng
+                          );
+                        setOrder((prev) =>
+                          prev
+                            ? { ...prev, lat, lng, distanceKm: realDist }
+                            : prev
+                        );
                       }
                     } catch (e) {
                       console.error("Failed to calibrate doorstep GPS:", e);

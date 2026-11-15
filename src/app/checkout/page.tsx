@@ -21,6 +21,8 @@ import {
   Bookmark,
   Trash2,
   X,
+  LocateFixed,
+  Sparkles,
 } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useCustomerAuth } from "@/context/CustomerAuthContext";
@@ -267,9 +269,9 @@ export default function CheckoutPage() {
   };
 
   // GPS auto-detect handler
-  const handleDetectLocation = () => {
-    if (!navigator.geolocation) {
-      setGpsError("Geolocation is not supported by your browser.");
+  const handleDetectLocation = (silent: boolean = false) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      if (!silent) setGpsError("Geolocation is not supported by your browser.");
       return;
     }
 
@@ -291,6 +293,20 @@ export default function CheckoutPage() {
         setGpsDistance(dist);
         setGpsLoading(false);
 
+        // Find closest locality zone from Tagarapuvalasa presets to snap dropdown
+        let closest = TAGARAPUVALASA_LOCALITIES[0];
+        let minDiff = Infinity;
+        for (const loc of TAGARAPUVALASA_LOCALITIES) {
+          const d = calculateDistanceKm(loc.lat, loc.lng, lat, lng);
+          if (d < minDiff) {
+            minDiff = d;
+            closest = loc;
+          }
+        }
+        if (closest) {
+          setSelectedLocality(closest);
+        }
+
         if (dist > maxRadiusKm) {
           setGpsError(
             `You are ${dist}km away from Upahar, Sangivalasa. Delivery is available within ${maxRadiusKm}km. You may still order for Self-Pickup!`
@@ -299,13 +315,30 @@ export default function CheckoutPage() {
       },
       () => {
         setGpsLoading(false);
-        setGpsError(
-          "Unable to retrieve GPS location. Please choose your locality from the dropdown below."
-        );
+        if (!silent) {
+          setGpsError(
+            "Unable to retrieve GPS location. Please allow browser location access or select your zone below."
+          );
+        }
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
+
+  // Proactively check if user already granted geolocation permission
+  useEffect(() => {
+    if (orderType !== "DELIVERY" || gpsCoords) return;
+    if (typeof navigator !== "undefined" && navigator.permissions) {
+      navigator.permissions
+        .query({ name: "geolocation" })
+        .then((result) => {
+          if (result.state === "granted") {
+            handleDetectLocation(true);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [orderType, gpsCoords]);
 
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -699,7 +732,7 @@ export default function CheckoutPage() {
 
                   <button
                     type="button"
-                    onClick={handleDetectLocation}
+                    onClick={() => handleDetectLocation(false)}
                     disabled={gpsLoading}
                     className="text-[11px] font-bold text-brand-700 bg-brand-700/10 hover:bg-brand-700/20 px-3 py-1 rounded-xl transition flex items-center space-x-1"
                   >
@@ -744,20 +777,66 @@ export default function CheckoutPage() {
                   </div>
                 )}
 
-                {gpsDistance !== null && (
+                {/* Proactive GPS Doorstep Prompt Banner */}
+                {!gpsCoords ? (
+                  <div className="p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-400/5 to-rose-500/10 border border-amber-300 dark:border-amber-700/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-brand-700 text-[#DFC17B] flex items-center justify-center shrink-0 shadow-sm">
+                        <Navigation className="w-5 h-5 animate-pulse" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-black text-brand-950 block">
+                          📍 Pinpoint Doorstep GPS Delivery
+                        </span>
+                        <p className="text-[11px] text-stone-600 leading-tight mt-0.5">
+                          Allow GPS so our rider gets direct turn-by-turn navigation and accurate distance to your door.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDetectLocation(false)}
+                      disabled={gpsLoading}
+                      className="px-4 py-2.5 rounded-xl bg-brand-700 hover:bg-brand-800 text-[#DFC17B] text-xs font-black shrink-0 shadow-md transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <LocateFixed className={`w-4 h-4 ${gpsLoading ? "animate-spin" : ""}`} />
+                      <span>{gpsLoading ? "Detecting GPS..." : "📍 Allow Doorstep GPS"}</span>
+                    </button>
+                  </div>
+                ) : (
                   <div
-                    className={`p-3 rounded-xl text-xs font-medium flex items-center space-x-2 ${
-                      gpsDistance <= maxRadiusKm
-                        ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                    className={`p-3.5 rounded-2xl text-xs font-medium flex items-center justify-between gap-3 shadow-xs ${
+                      gpsDistance !== null && gpsDistance <= maxRadiusKm
+                        ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 border border-emerald-300"
                         : "bg-red-50 text-red-800 border border-red-200"
                     }`}
                   >
-                    <MapPin className="w-4 h-4 flex-shrink-0" />
-                    <span>
-                      {gpsDistance <= maxRadiusKm
-                        ? `GPS Verified: You are ${gpsDistance}km from Upahar (Within our ${maxRadiusKm}km delivery zone).`
-                        : `GPS Alert: You are ${gpsDistance}km away. Online delivery is limited to ${maxRadiusKm}km.`}
-                    </span>
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                        <MapPin className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-black text-emerald-950">
+                            Doorstep GPS Locked: {gpsDistance} km
+                          </span>
+                          <span className="text-[9px] uppercase font-black bg-emerald-200 text-emerald-900 px-1.5 py-0.5 rounded-md">
+                            Verified
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-emerald-700 block mt-0.5">
+                          Coordinates: {gpsCoords.lat.toFixed(4)}, {gpsCoords.lng.toFixed(4)} • Zone: {selectedLocality.name}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDetectLocation(false)}
+                      disabled={gpsLoading}
+                      className="text-[11px] font-black text-emerald-800 hover:underline shrink-0"
+                    >
+                      {gpsLoading ? "Detecting..." : "Re-detect"}
+                    </button>
                   </div>
                 )}
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { broadcastRealtimeEvent } from "@/lib/realtime-bus";
 import { getAdminSession } from "@/lib/auth";
+import { calculateDistanceKm, UPAHAR_COORDINATES } from "@/lib/delivery-zones";
 import { revalidatePath } from "next/cache";
 
 export async function GET(
@@ -206,11 +207,21 @@ export async function PUT(
       body.customerLat !== undefined &&
       body.customerLng !== undefined
     ) {
+      const cLat = Number(body.customerLat);
+      const cLng = Number(body.customerLng);
+      const realDistanceKm = calculateDistanceKm(
+        UPAHAR_COORDINATES.lat,
+        UPAHAR_COORDINATES.lng,
+        cLat,
+        cLng
+      );
+
       const custUpdated = await prisma.order.update({
         where: { id: existing.id },
         data: {
-          lat: Number(body.customerLat),
-          lng: Number(body.customerLng),
+          lat: cLat,
+          lng: cLng,
+          distanceKm: realDistanceKm,
         },
       });
 
@@ -219,6 +230,7 @@ export async function PUT(
         orderNumber: custUpdated.orderNumber,
         customerLat: custUpdated.lat,
         customerLng: custUpdated.lng,
+        distanceKm: custUpdated.distanceKm,
       });
 
       return NextResponse.json({ success: true, order: custUpdated });

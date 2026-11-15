@@ -17,7 +17,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
-import { UPAHAR_COORDINATES, TAGARAPUVALASA_LOCALITIES } from "@/lib/delivery-zones";
+import { UPAHAR_COORDINATES, TAGARAPUVALASA_LOCALITIES, calculateDistanceKm } from "@/lib/delivery-zones";
 
 export interface LiveTrackingMapProps {
   status: string;
@@ -72,26 +72,53 @@ export default function LiveTrackingMap({
   const [gpsCalibratedMsg, setGpsCalibratedMsg] = useState<string | null>(null);
   const [simulatedProgress, setSimulatedProgress] = useState(0.4);
 
+  // Origin (Upahar Restaurant in Sangivalasa, beside SBI, ANITS College Road)
+  const originLat = UPAHAR_COORDINATES.lat;
+  const originLng = UPAHAR_COORDINATES.lng;
+
   // Match destination from locality preset if coordinates are not directly stored
   const matchedLoc = TAGARAPUVALASA_LOCALITIES.find(
     (l) => l.name === locality || locality?.includes(l.area)
   );
-  const destLat = customerLat || matchedLoc?.lat || 17.933;
-  const destLng = customerLng || matchedLoc?.lng || 83.417;
-  const effectiveDist = distanceKm || matchedLoc?.distanceKm || 1.8;
 
-  // Origin (Upahar Restaurant in Sangivalasa, beside SBI, ANITS College Road)
-  const originLat = UPAHAR_COORDINATES.lat;
-  const originLng = UPAHAR_COORDINATES.lng;
+  // Initial coordinates and distance calculation
+  const initialDestLat = customerLat || matchedLoc?.lat || 17.933;
+  const initialDestLng = customerLng || matchedLoc?.lng || 83.417;
+  const initialDistance =
+    distanceKm ||
+    (customerLat && customerLng
+      ? calculateDistanceKm(originLat, originLng, customerLat, customerLng)
+      : matchedLoc?.distanceKm || 1.8);
+
+  // Dynamic reactive state for customer destination and real-time distance
+  const [liveDestLat, setLiveDestLat] = useState<number>(initialDestLat);
+  const [liveDestLng, setLiveDestLng] = useState<number>(initialDestLng);
+  const [liveDistanceKm, setLiveDistanceKm] = useState<number>(initialDistance);
+  const [isGpsLocked, setIsGpsLocked] = useState<boolean>(Boolean(customerLat && customerLng));
+
+  // Sync internal state if props change (e.g. through SSE updates)
+  useEffect(() => {
+    if (customerLat && customerLng) {
+      setLiveDestLat(customerLat);
+      setLiveDestLng(customerLng);
+      setIsGpsLocked(true);
+      const computed =
+        distanceKm ||
+        calculateDistanceKm(originLat, originLng, customerLat, customerLng);
+      setLiveDistanceKm(computed);
+    } else if (distanceKm) {
+      setLiveDistanceKm(distanceKm);
+    }
+  }, [customerLat, customerLng, distanceKm, originLat, originLng]);
 
   // Determine current rider position (live GPS or interpolated along road)
   const hasLiveRiderGps = Boolean(riderLat && riderLng);
   const activeRiderLat = hasLiveRiderGps
     ? riderLat!
-    : originLat + (destLat - originLat) * simulatedProgress;
+    : originLat + (liveDestLat - originLat) * simulatedProgress;
   const activeRiderLng = hasLiveRiderGps
     ? riderLng!
-    : originLng + (destLng - originLng) * simulatedProgress;
+    : originLng + (liveDestLng - originLng) * simulatedProgress;
 
   // Fallback simulation timer if rider GPS is not broadcasting yet
   useEffect(() => {
@@ -109,48 +136,94 @@ export default function LiveTrackingMap({
   }, [hasLiveRiderGps, status]);
 
   // Handle Customer Live Location Calibration (Both ends live tracking)
-  const handleCalibrateCustomerLocation = () => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      alert("Geolocation is not supported by your browser.");
-      return;
+  const handleCalibrateCustomerLocation = useCallback(
+    (silent: boolean = false) => {
+      if (typeof navigator === "undefined" || !navigator.geolocation) {
+        if (!silent) alert("Geolocation is not supported by your browser.");
+        return;
+      }
+
+      setCalibratingGps(true);
+      setGpsCalibratedMsg(null);
+
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const { latitude, longitude } = pos.coords;
+          const newDist = calculateDistanceKm(
+            originLat,
+            originLng,
+            latitude,
+            longitude
+          );
+
+          // Update local reactive state immediately
+          setLiveDestLat(latitude);
+          setLiveDestLng(longitude);
+          setLiveDistanceKm(newDist);
+          setIsGpsLocked(true);
+          setCalibratingGps(false);
+          setGpsCalibratedMsg(`📍 Doorstep GPS locked! (~${newDist} km from Upahar)`);
+          setTimeout(() => setGpsCalibratedMsg(null), 5000);
+
+          // Update Leaflet marker and re-center map immediately if map is active
+          if (customerMarkerRef.current) {
+            customerMarkerRef.current.setLatLng([latitude, longitude]);
+          }
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.panTo([latitude, longitude]);
+          }
+
+          // Propagate to parent handler or API directly
+          if (onCustomerLocationUpdate) {
+            try {
+              await onCustomerLocationUpdate(latitude, longitude);
+            } catch (err) {
+              console.error("onCustomerLocationUpdate error:", err);
+            }
+          } else if (orderId) {
+            fetch(`/api/orders/${orderId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                action: "UPDATE_CUSTOMER_LOCATION",
+                customerLat: latitude,
+                customerLng: longitude,
+              }),
+            }).catch(console.error);
+          }
+        },
+        (err) => {
+          setCalibratingGps(false);
+          if (!silent) {
+            alert(
+              "Could not access GPS. Please allow location access in your browser to lock your doorstep position."
+            );
+          }
+        },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      );
+    },
+    [originLat, originLng, onCustomerLocationUpdate, orderId]
+  );
+
+  // Proactively query geolocation permission on mount if GPS not yet locked
+  useEffect(() => {
+    if (isGpsLocked || (customerLat && customerLng)) return;
+
+    if (typeof navigator !== "undefined" && navigator.permissions) {
+      navigator.permissions
+        .query({ name: "geolocation" })
+        .then((permissionStatus) => {
+          if (permissionStatus.state === "granted") {
+            handleCalibrateCustomerLocation(true);
+          }
+        })
+        .catch(() => {});
     }
-
-    setCalibratingGps(true);
-    setGpsCalibratedMsg(null);
-
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        setCalibratingGps(false);
-        setGpsCalibratedMsg("📍 Doorstep GPS calibrated successfully!");
-        setTimeout(() => setGpsCalibratedMsg(null), 5000);
-
-        if (onCustomerLocationUpdate) {
-          await onCustomerLocationUpdate(latitude, longitude);
-        } else if (orderId) {
-          fetch(`/api/orders/${orderId}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "UPDATE_CUSTOMER_LOCATION",
-              customerLat: latitude,
-              customerLng: longitude,
-            }),
-          }).catch(console.error);
-        }
-      },
-      (err) => {
-        setCalibratingGps(false);
-        alert(
-          "Could not detect location. Please allow browser location access to calibrate your doorstep position."
-        );
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
-  };
+  }, [isGpsLocked, customerLat, customerLng, handleCalibrateCustomerLocation]);
 
   // Google Maps external turn-by-turn navigation URL
-  const gmapsRouteUrl = `https://www.google.com/maps/dir/?api=1&origin=${originLat},${originLng}&destination=${destLat},${destLng}`;
+  const gmapsRouteUrl = `https://www.google.com/maps/dir/?api=1&origin=${originLat},${originLng}&destination=${liveDestLat},${liveDestLng}`;
 
   // Initialize and update Leaflet Interactive Map
   useEffect(() => {
@@ -165,7 +238,7 @@ export default function LiveTrackingMap({
       if (!mapInstanceRef.current) {
         // Create Leaflet map instance
         const map = L.map(mapContainerRef.current, {
-          center: [(originLat + destLat) / 2, (originLng + destLng) / 2],
+          center: [(originLat + liveDestLat) / 2, (originLng + liveDestLng) / 2],
           zoom: 14,
           zoomControl: false,
           attributionControl: false,
@@ -234,12 +307,12 @@ export default function LiveTrackingMap({
       });
 
       if (!customerMarkerRef.current) {
-        customerMarkerRef.current = L.marker([destLat, destLng], {
+        customerMarkerRef.current = L.marker([liveDestLat, liveDestLng], {
           icon: customerIcon,
           zIndexOffset: 150,
         }).addTo(map);
       } else {
-        customerMarkerRef.current.setLatLng([destLat, destLng]);
+        customerMarkerRef.current.setLatLng([liveDestLat, liveDestLng]);
       }
 
       // 3. Live Moving Delivery Rider Marker
@@ -279,7 +352,7 @@ export default function LiveTrackingMap({
       // 4. Road Route Polyline (Source -> Rider -> Destination)
       const fetchDrivingRoute = async () => {
         try {
-          const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${originLng},${originLat};${destLng},${destLat}?overview=full&geometries=geojson`;
+          const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${originLng},${originLat};${liveDestLng},${liveDestLat}?overview=full&geometries=geojson`;
           const res = await fetch(osrmUrl);
           const data = await res.json();
 
@@ -290,12 +363,12 @@ export default function LiveTrackingMap({
             );
           } else {
             // Smooth interpolated waypoint fallback through Sangivalasa & NH-16 corridor
-            const midLat = originLat + (destLat - originLat) * 0.5 + 0.001;
-            const midLng = originLng + (destLng - originLng) * 0.5 - 0.001;
+            const midLat = originLat + (liveDestLat - originLat) * 0.5 + 0.001;
+            const midLng = originLng + (liveDestLng - originLng) * 0.5 - 0.001;
             polylineCoords = [
               [originLat, originLng],
               [midLat, midLng],
-              [destLat, destLng],
+              [liveDestLat, liveDestLng],
             ];
           }
 
@@ -315,7 +388,7 @@ export default function LiveTrackingMap({
           const bounds = L.latLngBounds([
             [originLat, originLng],
             [activeRiderLat, activeRiderLng],
-            [destLat, destLng],
+            [liveDestLat, liveDestLng],
           ]);
           map.fitBounds(bounds, { padding: [50, 50] });
         } catch {
@@ -327,7 +400,7 @@ export default function LiveTrackingMap({
             [
               [originLat, originLng],
               [activeRiderLat, activeRiderLng],
-              [destLat, destLng],
+              [liveDestLat, liveDestLng],
             ],
             { color: "#18181b", weight: 5, opacity: 0.9 }
           ).addTo(map);
@@ -345,8 +418,8 @@ export default function LiveTrackingMap({
   }, [
     originLat,
     originLng,
-    destLat,
-    destLng,
+    liveDestLat,
+    liveDestLng,
     activeRiderLat,
     activeRiderLng,
     riderName,
@@ -367,7 +440,7 @@ export default function LiveTrackingMap({
     const bounds = [
       [originLat, originLng],
       [activeRiderLat, activeRiderLng],
-      [destLat, destLng],
+      [liveDestLat, liveDestLng],
     ];
     mapInstanceRef.current.fitBounds(bounds, { padding: [60, 60] });
   };
@@ -432,7 +505,7 @@ export default function LiveTrackingMap({
               : "Cooking & Packing at Kitchen"}
           </span>
           <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full">
-            ~{effectiveDist} km
+            ~{liveDistanceKm} km
           </span>
         </div>
 
@@ -455,6 +528,32 @@ export default function LiveTrackingMap({
           </button>
         </div>
       </div>
+
+      {/* Doorstep GPS Calibration Banner (If high-accuracy GPS is not yet locked) */}
+      {!isGpsLocked && (
+        <div className="absolute top-14 left-3 right-3 z-10 bg-amber-500/95 dark:bg-amber-600/95 text-stone-950 font-bold p-2.5 sm:p-3 rounded-2xl shadow-xl flex items-center justify-between gap-2.5 text-xs backdrop-blur-md border border-amber-300 animate-in fade-in">
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertCircle className="w-4 h-4 text-stone-950 shrink-0" />
+            <div className="truncate">
+              <span className="font-extrabold block text-[11px] sm:text-xs">
+                Approximate Area Shown (~{liveDistanceKm} km)
+              </span>
+              <span className="text-[10px] sm:text-[11px] font-medium opacity-90 truncate block">
+                Lock your live doorstep GPS for meter-accurate tracking & ETA
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleCalibrateCustomerLocation(false)}
+            disabled={calibratingGps}
+            className="px-2.5 py-1.5 rounded-xl bg-stone-950 text-amber-300 hover:bg-stone-900 text-[10px] sm:text-[11px] font-black shrink-0 shadow-md transition cursor-pointer flex items-center gap-1 disabled:opacity-50"
+          >
+            <LocateFixed className={`w-3.5 h-3.5 ${calibratingGps ? "animate-spin" : ""}`} />
+            <span>{calibratingGps ? "Calibrating..." : "📍 Lock GPS"}</span>
+          </button>
+        </div>
+      )}
 
       {/* GPS Calibrated Toast */}
       {gpsCalibratedMsg && (
@@ -493,7 +592,7 @@ export default function LiveTrackingMap({
 
           <div className="text-right shrink-0">
             <span className="text-xs font-black text-brand-950 dark:text-white block">
-              ~{effectiveDist} km
+              ~{liveDistanceKm} km
             </span>
             <span className="text-[10px] text-emerald-600 font-bold block">Direct Route</span>
           </div>
@@ -585,7 +684,7 @@ export default function LiveTrackingMap({
         <div className="flex items-center justify-between pt-1 text-xs">
           <button
             type="button"
-            onClick={handleCalibrateCustomerLocation}
+            onClick={() => handleCalibrateCustomerLocation(false)}
             disabled={calibratingGps}
             className="inline-flex items-center gap-1.5 text-[11px] font-bold text-brand-700 hover:text-brand-900 dark:text-amber-400 hover:underline cursor-pointer disabled:opacity-50"
           >
