@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { broadcastRealtimeEvent } from "@/lib/realtime-bus";
+import { getAdminSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 
 export async function GET(
@@ -71,6 +72,21 @@ export async function PUT(
 
     if (!existing) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    const adminSession = await getAdminSession();
+    if (adminOverride && !adminSession) {
+      return NextResponse.json(
+        { error: "Unauthorized: Admin session required for adminOverride." },
+        { status: 401 }
+      );
+    }
+
+    if (status === "CANCELLED" && action !== "CUSTOMER_CANCEL" && !adminSession) {
+      return NextResponse.json(
+        { error: "Unauthorized: Admin session required to cancel order." },
+        { status: 401 }
+      );
     }
 
     // 1. Customer Self-Cancel (only allowed while status === "PENDING")

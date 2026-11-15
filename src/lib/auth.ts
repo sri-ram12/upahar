@@ -2,7 +2,10 @@ import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 import { prisma } from "./prisma";
 
-const JWT_SECRET = process.env.JWT_SECRET || "upahar_secret_key_default_2026";
+import crypto from "crypto";
+
+const RUNTIME_FALLBACK_SECRET = crypto.randomBytes(32).toString("hex");
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === "production" ? RUNTIME_FALLBACK_SECRET : "upahar_dev_secret_key_2026");
 const COOKIE_NAME = "upahar_admin_token";
 
 export interface AdminPayload {

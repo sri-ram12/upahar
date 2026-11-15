@@ -7,8 +7,8 @@ import { UtensilsCrossed, Lock, Mail, ArrowRight, AlertCircle, CheckCircle2 } fr
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@upahar.com");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -53,15 +53,6 @@ export default function AdminLoginPage() {
           <p className="text-stone-400 text-xs">
             Sign in to manage orders, live menu items, and business hours
           </p>
-        </div>
-
-        {/* Demo Credentials Box */}
-        <div className="p-3 bg-stone-900/80 border border-stone-700 rounded-2xl text-xs text-stone-300 space-y-1">
-          <span className="font-bold text-orange-400 block uppercase tracking-wider text-[10px]">
-            Default Admin Credentials
-          </span>
-          <p>Email: <code className="text-amber-200">admin@upahar.com</code></p>
-          <p>Password: <code className="text-amber-200">admin123</code></p>
         </div>
 
         {error && (

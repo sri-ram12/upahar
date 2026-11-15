@@ -53,12 +53,8 @@ export async function PUT(
     const { id } = await params;
     const body = await req.json();
     const session = await getAdminSession();
-    const isOnlyAvailabilityToggle = Object.keys(body).every(
-      (k) => k === "isAvailable" || k === "source"
-    );
-
-    if (!session && !isOnlyAvailabilityToggle) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized: Admin session required" }, { status: 401 });
     }
 
     const item = await prisma.foodItem.update({

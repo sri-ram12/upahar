@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthenticatedCustomer } from "@/lib/customer-auth";
+import { getAdminSession } from "@/lib/auth";
 
 async function resolveCustomerId(fallbackId?: string | null) {
   const authenticated = await getAuthenticatedCustomer();
   if (authenticated?.id) {
     return authenticated.id;
   }
-  return fallbackId || null;
+  // Only allow querying another customerId if requester is an authenticated Admin
+  const admin = await getAdminSession();
+  if (admin && fallbackId) {
+    return fallbackId;
+  }
+  return null;
 }
 
 export async function GET(req: NextRequest) {

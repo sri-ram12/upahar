@@ -2,24 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { broadcastRealtimeEvent } from "@/lib/realtime-bus";
+import { getAdminSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 
 // GET: List all delivery agents (for Admin panel and Rider dispatch)
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const adminSession = await getAdminSession();
+    const riderToken = req.cookies.get("upahar_delivery_token")?.value;
+
     const agents = await prisma.deliveryAgent.findMany({
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
         name: true,
-        phone: true,
+        // Only disclose full phone & cash-in-hand to authenticated admin or rider
+        phone: adminSession || riderToken ? true : false,
         vehicleNumber: true,
         status: true,
         approvalStatus: true,
         isActive: true,
         totalDeliveries: true,
-        cashInHand: true,
-        totalEarnings: true,
+        cashInHand: adminSession ? true : false,
+        totalEarnings: adminSession ? true : false,
         createdAt: true,
       },
     });
@@ -42,6 +47,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { action, name, phone, vehicleNumber, pin } = body;
     const isSelfSignup = action === "apply";
+
+    if (!isSelfSignup) {
+      const adminSession = await getAdminSession();
+      if (!adminSession) {
+        return NextResponse.json({ error: "Unauthorized: Admin session required to add riders directly" }, { status: 401 });
+      }
+    }
 
     if (!name || !phone || !vehicleNumber || !pin) {
       return NextResponse.json(
@@ -120,6 +132,11 @@ export async function POST(req: NextRequest) {
 // PUT: Approve/reject applicant, toggle active status, duty status, settle cash, or reset PIN
 export async function PUT(req: NextRequest) {
   try {
+    const adminSession = await getAdminSession();
+    if (!adminSession) {
+      return NextResponse.json({ error: "Unauthorized: Admin session required" }, { status: 401 });
+    }
+
     const body = await req.json();
     const {
       id,
@@ -190,6 +207,11 @@ export async function PUT(req: NextRequest) {
 // DELETE: Remove delivery agent from roster permanently
 export async function DELETE(req: NextRequest) {
   try {
+    const adminSession = await getAdminSession();
+    if (!adminSession) {
+      return NextResponse.json({ error: "Unauthorized: Admin session required" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 

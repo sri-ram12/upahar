@@ -12,9 +12,24 @@ import {
   normalizePhone,
   verifyStoredCustomerOtp,
 } from "@/lib/customer-otp";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
   try {
+    const clientIp = getClientIp(req);
+    const rl = rateLimit(clientIp, {
+      intervalMs: 60 * 1000,
+      maxRequests: 5,
+      prefix: "cust_otp",
+    });
+
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: `Too many OTP requests. Please wait ${rl.resetSeconds} seconds.` },
+        { status: 429, headers: { "Retry-After": String(rl.resetSeconds) } }
+      );
+    }
+
     const body = await req.json();
     const {
       action,
@@ -108,7 +123,6 @@ export async function POST(req: NextRequest) {
             : sendResult.delivered
             ? `4-digit OTP sent via SMS to +91 ${cleanPhone}`
             : `SMS OTP generated for +91 ${cleanPhone}`,
-        ...(sendResult.sandboxOtp ? { sandboxOtp: sendResult.sandboxOtp } : {}),
       });
     }
 

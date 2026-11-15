@@ -11,9 +11,24 @@ import {
   normalizeEmail,
   normalizePhone,
 } from "@/lib/customer-otp";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
   try {
+    const clientIp = getClientIp(req);
+    const rl = rateLimit(clientIp, {
+      intervalMs: 60 * 1000,
+      maxRequests: 10,
+      prefix: "cust_auth",
+    });
+
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: `Too many login/registration attempts. Please wait ${rl.resetSeconds} seconds.` },
+        { status: 429, headers: { "Retry-After": String(rl.resetSeconds) } }
+      );
+    }
+
     const body = await req.json();
     const {
       action,
@@ -77,7 +92,6 @@ export async function POST(req: NextRequest) {
               message: otpRes.ok && otpRes.delivered
                 ? `Account pending verification. Fresh 6-digit OTP sent to ${cleanEmail}!`
                 : `Account pending verification. Verification OTP generated for ${cleanEmail}.`,
-              ...(otpRes.ok && otpRes.sandboxOtp ? { sandboxOtp: otpRes.sandboxOtp } : {}),
             });
           }
           return NextResponse.json(
@@ -145,7 +159,6 @@ export async function POST(req: NextRequest) {
             otpRes.ok && otpRes.delivered
               ? `Account registered! Enter the 6-digit verification OTP sent to ${cleanEmail}.`
               : `Account registered! Enter the verification OTP generated for ${cleanEmail}.`,
-          ...(otpRes.ok && otpRes.sandboxOtp ? { sandboxOtp: otpRes.sandboxOtp } : {}),
         });
       }
 
@@ -225,7 +238,6 @@ export async function POST(req: NextRequest) {
           otpRes.ok && otpRes.delivered
             ? `Email not verified yet. Sent fresh 6-digit OTP to ${customer.email}.`
             : `Email verification required. Generated OTP for ${customer.email}.`,
-        ...(otpRes.ok && otpRes.sandboxOtp ? { sandboxOtp: otpRes.sandboxOtp } : {}),
       });
     }
 

@@ -38,18 +38,12 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   try {
-    const body = await req.json();
     const session = await getAdminSession();
-
-    // If modifying core profile/hours, verify admin session.
-    // Allow instant Emergency Stop toggle from Admin & Master Command Hub.
-    const isOnlyEmergencyToggle = Object.keys(body).every(
-      (k) => k === "isEmergencyWebsiteStopped" || k === "emergencyStopMessage"
-    );
-
-    if (!session && !isOnlyEmergencyToggle) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized: Admin session required" }, { status: 401 });
     }
+
+    const body = await req.json();
 
     const settings = await prisma.restaurantSetting.upsert({
       where: { id: "default" },

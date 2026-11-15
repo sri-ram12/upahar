@@ -11,7 +11,9 @@ import {
 } from "@/lib/store-hours";
 import { getSubsitesAndSettings } from "@/lib/subsite-data";
 import { getAuthenticatedCustomer } from "@/lib/customer-auth";
+import { getAdminSession } from "@/lib/auth";
 import { sendOrderConfirmationEmail } from "@/lib/mailer";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function GET(req: NextRequest) {
   try {
@@ -21,7 +23,12 @@ export async function GET(req: NextRequest) {
     const customerId = searchParams.get("customerId");
     const orderNumbersParam = searchParams.get("orderNumbers");
     const includeStats = searchParams.get("stats") === "true";
-    const limit = parseInt(searchParams.get("limit") || "50", 10);
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "50", 10)));
+
+    const adminSession = await getAdminSession();
+    if (includeStats && !adminSession) {
+      return NextResponse.json({ error: "Unauthorized: Admin session required to view financial statistics" }, { status: 401 });
+    }
 
     const where: any = {};
     if (status && status !== "ALL") {
@@ -41,7 +48,21 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (customerFilters.length === 1) {
+    const isStaff = Boolean(adminSession || req.cookies.get("upahar_delivery_token")?.value);
+    if (customerFilters.length === 0 && !isStaff) {
+      const authCustomer = await getAuthenticatedCustomer();
+      if (authCustomer) {
+        where.OR = [
+          { customerId: authCustomer.id },
+          ...(authCustomer.phone ? [{ customerPhone: authCustomer.phone }] : []),
+        ];
+      } else {
+        // Prevent unauthenticated scrapers from dumping all customer orders
+        const emptyRes = NextResponse.json({ orders: [] });
+        emptyRes.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+        return emptyRes;
+      }
+    } else if (customerFilters.length === 1) {
       Object.assign(where, customerFilters[0]);
     } else if (customerFilters.length > 1) {
       where.OR = customerFilters;
@@ -126,6 +147,20 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const clientIp = getClientIp(req);
+    const rl = rateLimit(clientIp, {
+      intervalMs: 5 * 60 * 1000,
+      maxRequests: 15,
+      prefix: "create_order",
+    });
+
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: `Too many order requests. Please wait ${rl.resetSeconds} seconds.` },
+        { status: 429, headers: { "Retry-After": String(rl.resetSeconds) } }
+      );
+    }
+
     // 0. Check Restaurant Emergency Website Stop & Online Ordering Toggle
     const settings = await prisma.restaurantSetting.findUnique({
       where: { id: "default" },
@@ -168,9 +203,12 @@ export async function POST(req: NextRequest) {
       paymentMethod = "COD",
       couponCode,
       upiTransactionId,
-      simulatorBypassHours = false,
+      simulatorBypassHours: requestedBypass = false,
       items,
     } = body;
+
+    const adminUser = await getAdminSession();
+    const simulatorBypassHours = Boolean(requestedBypass && adminUser);
 
     // 0b. Enforce Emergency Closed + Per-Subsite Operating Hours (Pickles 24x7, Tiffins 6-10:30 AM & 5-10:30 PM, Biryanis 12-10:30 PM, Fast Foods 5-10:30 PM)
     const { storeStatus, subsiteMap } = await getSubsitesAndSettings();

@@ -1,9 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAdminSession } from "@/lib/auth";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
   try {
+    const clientIp = getClientIp(req);
+    const rl = rateLimit(clientIp, {
+      intervalMs: 10 * 60 * 1000,
+      maxRequests: 5,
+      prefix: "contact_msg",
+    });
+
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: `Too many messages sent. Please wait ${rl.resetSeconds} seconds.` },
+        { status: 429, headers: { "Retry-After": String(rl.resetSeconds) } }
+      );
+    }
+
     const { name, contact, email, subject, message } = await req.json();
 
     if (!name || !contact || !message) {

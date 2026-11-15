@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
-const JWT_SECRET = process.env.JWT_SECRET || "upahar-delivery-secret-key-2026";
+const RUNTIME_FALLBACK_SECRET = crypto.randomBytes(32).toString("hex");
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === "production" ? RUNTIME_FALLBACK_SECRET : "upahar_delivery_dev_key_2026");
 const DELIVERY_COOKIE_NAME = "upahar_delivery_token";
 
 export async function GET(req: NextRequest) {
@@ -76,6 +79,20 @@ export async function DELETE() {
 
 export async function POST(req: NextRequest) {
   try {
+    const clientIp = getClientIp(req);
+    const rl = rateLimit(clientIp, {
+      intervalMs: 5 * 60 * 1000,
+      maxRequests: 5,
+      prefix: "rider_login",
+    });
+
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: `Too many login attempts. Please wait ${rl.resetSeconds} seconds before trying again.` },
+        { status: 429, headers: { "Retry-After": String(rl.resetSeconds) } }
+      );
+    }
+
     const body = await req.json();
     const { phone, pin } = body;
 

@@ -4,8 +4,11 @@ import type { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import type { CustomerUser } from "@/types";
 
+import crypto from "crypto";
+
 export const CUSTOMER_COOKIE_NAME = "upahar_customer_token";
-const JWT_SECRET = process.env.JWT_SECRET || "upahar-customer-secret-key-2026";
+const RUNTIME_FALLBACK_SECRET = crypto.randomBytes(32).toString("hex");
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === "production" ? RUNTIME_FALLBACK_SECRET : "upahar_customer_dev_key_2026");
 
 export function sanitizeCustomerForClient(customer: {
   id: string;

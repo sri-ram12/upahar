@@ -2,9 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { signToken, ADMIN_COOKIE_NAME } from "@/lib/auth";
+import { rateLimit, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
   try {
+    const clientIp = getClientIp(req);
+    const rl = rateLimit(clientIp, {
+      intervalMs: 5 * 60 * 1000,
+      maxRequests: 5,
+      prefix: "admin_login",
+    });
+
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: `Too many login attempts. Please wait ${rl.resetSeconds} seconds before trying again.` },
+        { status: 429, headers: { "Retry-After": String(rl.resetSeconds) } }
+      );
+    }
+
     const { email, password } = await req.json();
 
     if (!email || !password) {
