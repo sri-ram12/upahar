@@ -22,6 +22,12 @@ import {
 import { Order, FoodItem } from "@/types";
 import { useRealtimeEvents } from "@/hooks/useRealtimeEvents";
 import { usePwa } from "@/components/pwa/PwaRegister";
+import {
+  sendPwaNotification,
+  playNotificationTone,
+  isSoundEnabled,
+  setSoundEnabled as persistSoundEnabled,
+} from "@/lib/pwa-notifications";
 
 export default function KitchenDisplayPage() {
   const { installApp } = usePwa();
@@ -29,35 +35,29 @@ export default function KitchenDisplayPage() {
   const [menuItems, setMenuItems] = useState<FoodItem[]>([]);
   const [showStockDrawer, setShowStockDrawer] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabledState] = useState(true);
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [nowTick, setNowTick] = useState<number>(Date.now());
 
   const prevPendingRef = useRef(0);
 
+  useEffect(() => {
+    setSoundEnabledState(isSoundEnabled());
+  }, []);
+
+  const handleToggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabledState(next);
+    persistSoundEnabled(next);
+    if (next) {
+      playNotificationTone("kitchen_bell");
+    }
+  };
+
   // Kitchen Sound Alert (High-contrast Ding-Dong)
   const playKitchenChime = () => {
     if (!soundEnabled) return;
-    try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const playTone = (freq: number, start: number, duration: number) => {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = "triangle";
-        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + start);
-        gain.gain.setValueAtTime(0.4, audioCtx.currentTime + start);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + start + duration);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(audioCtx.currentTime + start);
-        osc.stop(audioCtx.currentTime + start + duration);
-      };
-      playTone(523.25, 0, 0.4); // C5
-      playTone(659.25, 0.2, 0.4); // E5
-      playTone(783.99, 0.4, 0.6); // G5
-    } catch (e) {
-      console.warn("Audio chime prevented by browser autoplay policy", e);
-    }
+    playNotificationTone("kitchen_bell");
   };
 
   const fetchKitchenOrders = async () => {
@@ -90,8 +90,16 @@ export default function KitchenDisplayPage() {
 
   // Sub-50ms Realtime SSE Push Stream
   const { isConnected: isRealtimeConnected } = useRealtimeEvents({
-    onOrderCreated: () => {
-      playKitchenChime();
+    onOrderCreated: (payload) => {
+      sendPwaNotification({
+        title: `🛎️ Kitchen Alert: New Ticket #${payload?.orderNumber || "NEW"}`,
+        body: `New ${payload?.orderType || "food"} order received! Tap to view cooking ticket.`,
+        icon: "/icons/kitchen-192.png",
+        url: "/kitchen",
+        tone: "kitchen_bell",
+        tag: `kitchen-ticket-${payload?.orderNumber || Date.now()}`,
+        vibratePattern: [300, 150, 300, 150, 400],
+      });
       fetchKitchenOrders();
     },
     onOrderUpdated: () => {
@@ -231,11 +239,9 @@ export default function KitchenDisplayPage() {
           </div>
 
           <button
-            onClick={() => {
-              setSoundEnabled(!soundEnabled);
-              if (!soundEnabled) playKitchenChime();
-            }}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center space-x-2 ${
+            type="button"
+            onClick={handleToggleSound}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center space-x-2 cursor-pointer ${
               soundEnabled
                 ? "bg-emerald-950/80 border-emerald-600 text-emerald-300"
                 : "bg-stone-900 border-stone-700 text-stone-400"

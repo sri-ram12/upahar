@@ -27,6 +27,12 @@ import { Order, DeliveryAgent, RestaurantSetting } from "@/types";
 import { useRealtimeEvents } from "@/hooks/useRealtimeEvents";
 import PaymentQRCard from "@/components/payment/PaymentQRCard";
 import { usePwa } from "@/components/pwa/PwaRegister";
+import {
+  sendPwaNotification,
+  playNotificationTone,
+  isSoundEnabled,
+  setSoundEnabled as persistSoundEnabled,
+} from "@/lib/pwa-notifications";
 
 const RIDER_STORAGE_KEY = "upahar_rider_session_v1";
 
@@ -75,19 +81,7 @@ export default function DeliveryPartnerPage() {
   const [otpSuccess, setOtpSuccess] = useState<string | null>(null);
 
   const playRiderChime = () => {
-    try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(784, audioCtx.currentTime);
-      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.5);
-    } catch {}
+    playNotificationTone("rider_dispatch");
   };
 
   // Load rider session from localStorage & reconcile with live DB cookie session
@@ -247,11 +241,27 @@ export default function DeliveryPartnerPage() {
     },
     onOrderUpdated: (payload) => {
       if (payload?.status === "FOOD_READY") {
-        playRiderChime();
+        sendPwaNotification({
+          title: `🍲 Kitchen Alert: Order #${payload.orderNumber || "NEW"} Ready!`,
+          body: `Order is hot & packed at Upahar Kitchen, Sangivalasa. Ready for pickup!`,
+          icon: "/icons/rider-192.png",
+          url: "/delivery",
+          tone: "rider_dispatch",
+          tag: `rider-food-ready-${payload.orderNumber || Date.now()}`,
+          vibratePattern: [200, 100, 200, 100, 400],
+        });
         setDispatchNotice(`Food Ready at Kitchen: Order #${payload.orderNumber || "NEW"}`);
         setTimeout(() => setDispatchNotice(null), 6000);
       } else if (rider && payload?.deliveryAgentId === rider.id && payload?.status) {
-        playRiderChime();
+        sendPwaNotification({
+          title: `🛵 Order Assigned: #${payload.orderNumber || ""}`,
+          body: `You are assigned order #${payload.orderNumber || ""}. Tap to open customer GPS delivery route.`,
+          icon: "/icons/rider-192.png",
+          url: "/delivery",
+          tone: "rider_dispatch",
+          tag: `rider-assigned-${payload.orderNumber || Date.now()}`,
+          vibratePattern: [300, 150, 300, 150, 500],
+        });
         setDispatchNotice(
           `Assigned to You: #${payload.orderNumber || ""} (${String(payload.status).replace(/_/g, " ")})`
         );

@@ -23,7 +23,7 @@ import {
 import QRModal from "@/components/qr/QRModal";
 import { useCart } from "@/context/CartContext";
 import { useCustomerAuth } from "@/context/CustomerAuthContext";
-import { usePwa } from "@/components/pwa/PwaRegister";
+import { usePwa, PwaNotificationButton } from "@/components/pwa/PwaRegister";
 import { useRealtimeEvents } from "@/hooks/useRealtimeEvents";
 import {
   getWebsiteTheme,
@@ -504,6 +504,8 @@ export default function Navbar() {
               </button>
             )}
 
+            <PwaNotificationButton className="rounded-full py-1.5 px-2.5 text-xs" />
+
             <button
               onClick={() => setQrModalOpen(true)}
               className={`px-2 py-1.5 rounded-full border transition cursor-pointer flex items-center gap-1 ${pillActionClass}`}
@@ -568,6 +570,8 @@ export default function Navbar() {
                 </span>
               )}
             </button>
+
+            <PwaNotificationButton className="rounded-full py-1.5 px-2.5 text-xs" />
 
             <button
               onClick={() => setQrModalOpen(true)}
@@ -665,6 +669,9 @@ export default function Navbar() {
                 </div>
               </div>
             )}
+
+            {/* Sound & Notifications Mobile Quick Control */}
+            <PwaNotificationButton className="w-full justify-center py-2.5 rounded-2xl text-xs" />
 
             {/* Mobile Customer Account & My Orders Quick Bar */}
             <div

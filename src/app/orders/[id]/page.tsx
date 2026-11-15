@@ -27,6 +27,12 @@ import { useCart } from "@/context/CartContext";
 import LiveTrackingMap from "@/components/orders/LiveTrackingMap";
 import PaymentQRCard from "@/components/payment/PaymentQRCard";
 import { UPAHAR_COORDINATES, calculateDistanceKm } from "@/lib/delivery-zones";
+import {
+  sendPwaNotification,
+  playNotificationTone,
+  isSoundEnabled,
+  setSoundEnabled as persistSoundEnabled,
+} from "@/lib/pwa-notifications";
 
 function WhatsAppIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
@@ -52,47 +58,46 @@ export default function OrderTrackingPage({ params }: PageProps) {
   const [error, setError] = useState<string | null>(null);
 
   // Action states
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabledState] = useState(true);
   const [showQrPayBox, setShowQrPayBox] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [liveUpdateBanner, setLiveUpdateBanner] = useState<string | null>(null);
 
-  // Play audio alert on live status changes
-  const playCustomerChime = (type: "update" | "delivered" = "update") => {
-    if (!soundEnabled || typeof window === "undefined") return;
-    try {
-      const AudioCtxClass =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtxClass) return;
-      const audioCtx = new AudioCtxClass();
-      const playTone = (freq: number, start: number, duration: number) => {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + start);
-        gain.gain.setValueAtTime(0.25, audioCtx.currentTime + start);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + start + duration);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(audioCtx.currentTime + start);
-        osc.stop(audioCtx.currentTime + start + duration);
-      };
+  useEffect(() => {
+    setSoundEnabledState(isSoundEnabled());
+  }, []);
 
-      if (type === "delivered") {
-        // Celebratory 3-tone chime for delivered
-        playTone(523.25, 0, 0.25);    // C5
-        playTone(659.25, 0.18, 0.25); // E5
-        playTone(783.99, 0.36, 0.5);  // G5
-      } else {
-        // Melodic 2-tone notification chime
-        playTone(587.33, 0, 0.25);    // D5
-        playTone(880.00, 0.18, 0.4);  // A5
-      }
-    } catch {
-      // Browser autoplay policy guard
+  const handleToggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabledState(next);
+    persistSoundEnabled(next);
+    if (next) {
+      playNotificationTone("order_update");
     }
+  };
+
+  const triggerCustomerAlert = (newStatus: string) => {
+    if (!soundEnabled) return;
+    const isDelivered = newStatus === "DELIVERED";
+    const statusText = newStatus.replace(/_/g, " ");
+
+    let message = `Order #${order?.orderNumber || ""} is now ${statusText}`;
+    if (newStatus === "CONFIRMED") message = `Kitchen accepted order #${order?.orderNumber || ""}. Cooking fresh!`;
+    if (newStatus === "PREPARING") message = `Chef is preparing your hot tiffins & fast food in kitchen!`;
+    if (newStatus === "OUT_FOR_DELIVERY") message = `🛵 Rider is on the way with your hot food!`;
+    if (newStatus === "ARRIVED") message = `🎉 Rider has arrived at your gate! Please collect your food.`;
+    if (isDelivered) message = `🎉 Order Delivered! Enjoy your fresh Upahar meal.`;
+
+    sendPwaNotification({
+      title: isDelivered ? "🎉 UPAHAR: Food Delivered!" : `🛵 UPAHAR Order #${order?.orderNumber || ""}`,
+      body: message,
+      icon: "/icons/customer-192.png",
+      url: `/orders/${orderId}`,
+      tone: isDelivered ? "delivered" : "order_update",
+      tag: `customer-order-${orderId}-${newStatus}`,
+      vibratePattern: isDelivered ? [200, 100, 200, 100, 400] : [200, 100, 200],
+    });
   };
 
   // Rating State
@@ -134,7 +139,7 @@ export default function OrderTrackingPage({ params }: PageProps) {
         (order && payload.orderId === order.id)
       ) {
         if (payload.status) {
-          playCustomerChime(payload.status === "DELIVERED" ? "delivered" : "update");
+          triggerCustomerAlert(payload.status);
           setLiveUpdateBanner(`Live Update: Order is now ${String(payload.status).replace(/_/g, " ")}`);
           setTimeout(() => setLiveUpdateBanner(null), 5000);
         }
@@ -147,7 +152,7 @@ export default function OrderTrackingPage({ params }: PageProps) {
         payload.orderNumber === orderId ||
         (order && payload.orderId === order.id)
       ) {
-        playCustomerChime("delivered");
+        triggerCustomerAlert("DELIVERED");
         setLiveUpdateBanner("Order Delivered! Enjoy your fresh Upahar meal.");
         setTimeout(() => setLiveUpdateBanner(null), 6000);
         fetchOrder();
@@ -437,7 +442,7 @@ export default function OrderTrackingPage({ params }: PageProps) {
           <div className="flex items-center flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => setSoundEnabled(!soundEnabled)}
+              onClick={handleToggleSound}
               title={soundEnabled ? "Mute real-time chime" : "Enable real-time chime"}
               className={`p-2 rounded-xl border font-bold flex items-center transition cursor-pointer shadow-xs ${
                 soundEnabled

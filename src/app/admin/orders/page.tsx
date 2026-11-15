@@ -25,6 +25,12 @@ import {
 } from "lucide-react";
 import { Order, DeliveryAgent } from "@/types";
 import { useRealtimeEvents } from "@/hooks/useRealtimeEvents";
+import {
+  sendPwaNotification,
+  playNotificationTone,
+  isSoundEnabled,
+  setSoundEnabled as persistSoundEnabled,
+} from "@/lib/pwa-notifications";
 
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -33,7 +39,7 @@ export default function AdminOrdersPage() {
   const [activeTab, setActiveTab] = useState<
     "ALL" | "PENDING" | "PREPARING" | "OUT_FOR_DELIVERY" | "DELIVERED"
   >("PENDING");
-  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundEnabled, setSoundEnabledState] = useState(true);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [rejectModalOrder, setRejectModalOrder] = useState<Order | null>(null);
@@ -42,31 +48,23 @@ export default function AdminOrdersPage() {
 
   const prevPendingCountRef = useRef(0);
 
+  useEffect(() => {
+    setSoundEnabledState(isSoundEnabled());
+  }, []);
+
+  const handleToggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabledState(next);
+    persistSoundEnabled(next);
+    if (next) {
+      playNotificationTone("new_order");
+    }
+  };
+
   // Play audio alert using Web Audio API synthesized chime
   const playAlertSound = () => {
     if (!soundEnabled) return;
-    try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      
-      const playTone = (freq: number, start: number, duration: number) => {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + start);
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime + start);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + start + duration);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start(audioCtx.currentTime + start);
-        osc.stop(audioCtx.currentTime + start + duration);
-      };
-
-      // Two-tone bell chime (ding-dong)
-      playTone(659.25, 0, 0.4); // E5
-      playTone(880.00, 0.25, 0.6); // A5
-    } catch (e) {
-      console.warn("Audio chime prevented by browser autoplay policy", e);
-    }
+    playNotificationTone("new_order");
   };
 
   const fetchOrders = async () => {
@@ -104,7 +102,15 @@ export default function AdminOrdersPage() {
   // Instant sub-50ms Real-Time Push Stream via Server-Sent Events (SSE)
   const { isConnected: isRealtimeConnected } = useRealtimeEvents({
     onOrderCreated: (payload) => {
-      playAlertSound();
+      sendPwaNotification({
+        title: `🔥 New Order #${payload.orderNumber || "NEW"}`,
+        body: `${payload.customerName || "Customer"} placed an order for ₹${payload.totalAmount || 0} (${payload.orderType})`,
+        icon: "/icons/admin-192.png",
+        url: "/admin/orders",
+        tone: "new_order",
+        tag: `admin-order-${payload.orderNumber || Date.now()}`,
+        vibratePattern: [200, 100, 200, 100, 300],
+      });
       fetchOrders();
       setRealtimeToast({
         title: `🔥 New Order Placed: #${payload.orderNumber || "NEW"}`,
@@ -116,6 +122,14 @@ export default function AdminOrdersPage() {
       fetchOrders();
     },
     onOrderDelivered: (payload) => {
+      sendPwaNotification({
+        title: `✅ Order Delivered: #${payload.orderNumber}`,
+        body: `Delivered to ${payload.customerName}. Payment of ₹${payload.totalAmount} collected!`,
+        icon: "/icons/admin-192.png",
+        url: "/admin/orders",
+        tone: "delivered",
+        tag: `admin-delivered-${payload.orderNumber || Date.now()}`,
+      });
       fetchOrders();
       setRealtimeToast({
         title: `✅ Order Delivered: #${payload.orderNumber}`,
@@ -295,11 +309,9 @@ export default function AdminOrdersPage() {
 
           {/* Sound Toggle */}
           <button
-            onClick={() => {
-              setSoundEnabled(!soundEnabled);
-              if (!soundEnabled) playAlertSound();
-            }}
-            className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center space-x-1.5 ${
+            type="button"
+            onClick={handleToggleSound}
+            className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center space-x-1.5 cursor-pointer shadow-xs ${
               soundEnabled
                 ? "bg-emerald-50 border-emerald-200 text-emerald-800"
                 : "bg-stone-100 border-stone-200 text-stone-500"

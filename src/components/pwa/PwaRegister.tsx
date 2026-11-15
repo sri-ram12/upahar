@@ -3,8 +3,28 @@
 import React, { useEffect, useState, createContext, useContext } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { Download, Smartphone, X, Sparkles, CheckCircle2, FileDown } from "lucide-react";
+import {
+  Download,
+  Smartphone,
+  X,
+  Sparkles,
+  CheckCircle2,
+  FileDown,
+  Bell,
+  BellOff,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import PwaInstallModal from "./PwaInstallModal";
+import {
+  isNotificationSupported,
+  getNotificationPermission,
+  requestNotificationPermission,
+  isSoundEnabled,
+  setSoundEnabled,
+  playNotificationTone,
+  sendPwaNotification,
+} from "@/lib/pwa-notifications";
 
 export interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -137,6 +157,10 @@ interface PwaContextType {
   installCurrentApp: () => Promise<boolean>;
   installApp: () => Promise<boolean>;
   openAppHub: () => void;
+  notificationPermission: NotificationPermission;
+  soundEnabled: boolean;
+  requestNotifications: () => Promise<NotificationPermission>;
+  toggleSound: () => void;
 }
 
 const PwaContext = createContext<PwaContextType>({
@@ -148,6 +172,10 @@ const PwaContext = createContext<PwaContextType>({
   installCurrentApp: async () => false,
   installApp: async () => false,
   openAppHub: () => {},
+  notificationPermission: "default",
+  soundEnabled: true,
+  requestNotifications: async () => "default",
+  toggleSound: () => {},
 });
 
 export function usePwa() {
@@ -160,6 +188,31 @@ export function PwaProvider({ children }: { children: React.ReactNode }) {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>("default");
+  const [soundEnabled, setSoundEnabledState] = useState<boolean>(true);
+
+  // Sync notification and sound state on client mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setNotificationPermission(getNotificationPermission());
+      setSoundEnabledState(isSoundEnabled());
+    }
+  }, []);
+
+  const requestNotifications = async (): Promise<NotificationPermission> => {
+    const res = await requestNotificationPermission();
+    setNotificationPermission(res);
+    return res;
+  };
+
+  const toggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    setSoundEnabledState(next);
+    if (next) {
+      playNotificationTone("order_update");
+    }
+  };
 
   const activeApp = getActivePwaApp(pathname);
 
@@ -282,10 +335,15 @@ export function PwaProvider({ children }: { children: React.ReactNode }) {
         installCurrentApp,
         installApp: installCurrentApp,
         openAppHub,
+        notificationPermission,
+        soundEnabled,
+        requestNotifications,
+        toggleSound,
       }}
     >
       {children}
       <PwaInstallModal />
+      <PwaNotificationBanner />
     </PwaContext.Provider>
   );
 }
@@ -412,4 +470,112 @@ export function PwaPanelBanner({ className = "", variant = "floating" }: PwaPane
 
 export function PwaInstallPill(props: { appName?: string; iconSrc?: string; badge?: string; className?: string }) {
   return <PwaPanelBanner className={props.className} />;
+}
+
+/**
+ * Floating permission banner offering users 1-tap activation of order notifications and sound chimes.
+ */
+export function PwaNotificationBanner() {
+  const { notificationPermission, requestNotifications } = usePwa();
+  const [dismissed, setDismissed] = useState(false);
+  const [enabling, setEnabling] = useState(false);
+
+  // Hide if already granted, denied, unsupported, or dismissed in this browser session
+  if (notificationPermission !== "default" || dismissed) return null;
+
+  const handleEnable = async () => {
+    setEnabling(true);
+    await requestNotifications();
+    setEnabling(false);
+  };
+
+  return (
+    <div className="fixed bottom-4 left-4 z-40 max-w-sm p-3.5 rounded-2xl bg-white/95 dark:bg-stone-900/95 border border-brand-700/30 dark:border-amber-500/30 shadow-2xl backdrop-blur-md flex items-center justify-between gap-3 animate-in slide-in-from-bottom duration-300">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div className="w-9 h-9 rounded-xl bg-brand-700 text-[#DFC17B] flex items-center justify-center shrink-0 shadow-xs">
+          <Bell className="w-4 h-4 animate-bounce" />
+        </div>
+        <div className="min-w-0">
+          <span className="text-xs font-black text-brand-950 dark:text-white block truncate">
+            Enable Order Chimes & Alerts
+          </span>
+          <p className="text-[10px] text-stone-500 dark:text-stone-400 truncate">
+            Get instant sound tones when food is cooked & en route
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1.5 shrink-0">
+        <button
+          type="button"
+          onClick={handleEnable}
+          disabled={enabling}
+          className="px-3 py-1.5 rounded-xl bg-brand-700 hover:bg-brand-800 text-[#DFC17B] text-[11px] font-black shrink-0 shadow-xs transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
+        >
+          <span>{enabling ? "Enabling..." : "Allow"}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setDismissed(true)}
+          className="p-1 rounded-lg text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 cursor-pointer"
+          aria-label="Dismiss"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Reusable audio & notification control button that can be embedded in any panel's navigation bar.
+ */
+export function PwaNotificationButton({ className = "" }: { className?: string }) {
+  const { notificationPermission, soundEnabled, toggleSound, requestNotifications } = usePwa();
+
+  const handleClick = async () => {
+    if (notificationPermission === "default") {
+      await requestNotifications();
+    } else {
+      toggleSound();
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className={`p-2 rounded-xl border transition flex items-center gap-1.5 text-xs font-bold shadow-xs cursor-pointer ${
+        soundEnabled && notificationPermission === "granted"
+          ? "bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-700"
+          : soundEnabled
+          ? "bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-700"
+          : "bg-stone-100 text-stone-500 border-stone-200 dark:bg-stone-800 dark:text-stone-400 dark:border-stone-700"
+      } ${className}`}
+      title={
+        notificationPermission !== "granted"
+          ? "Click to enable PWA order alerts & chimes"
+          : soundEnabled
+          ? "Mute order chimes"
+          : "Unmute order chimes"
+      }
+    >
+      {notificationPermission !== "granted" ? (
+        <>
+          <Bell className="w-4 h-4 text-amber-600 animate-pulse" />
+          <span className="hidden sm:inline">Alerts: OFF</span>
+        </>
+      ) : soundEnabled ? (
+        <>
+          <Volume2 className="w-4 h-4 text-emerald-600" />
+          <span className="hidden sm:inline">Sound: ON</span>
+        </>
+      ) : (
+        <>
+          <VolumeX className="w-4 h-4 text-stone-500" />
+          <span className="hidden sm:inline">Sound: OFF</span>
+        </>
+      )}
+    </button>
+  );
 }

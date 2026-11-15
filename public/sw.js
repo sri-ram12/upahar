@@ -1,5 +1,5 @@
 // UPAHAR Multi-Panel Progressive Web App Service Worker
-const CACHE_NAME = 'upahar-pwa-v4';
+const CACHE_NAME = 'upahar-pwa-v5';
 
 const STATIC_ASSETS = [
   '/',
@@ -92,5 +92,68 @@ self.addEventListener('fetch', (event) => {
           }
         });
       })
+  );
+});
+
+// Native Notification Click Handler (Tap to focus order/panel in PWA)
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || '/';
+
+  event.waitUntil(
+    clients
+      .matchAll({ type: 'window', includeUncontrolled: true })
+      .then((windowClients) => {
+        // If an open window already matches the target path or root, focus it
+        for (let client of windowClients) {
+          if (client.url.includes(targetUrl) && 'focus' in client) {
+            return client.focus();
+          }
+        }
+        // Focus any open window and navigate it to target URL
+        if (windowClients.length > 0 && 'focus' in windowClients[0]) {
+          const client = windowClients[0];
+          client.focus();
+          if ('navigate' in client) {
+            return client.navigate(targetUrl);
+          }
+        }
+        // Otherwise open a new standalone window
+        if (clients.openWindow) {
+          return clients.openWindow(targetUrl);
+        }
+      })
+  );
+});
+
+// Background Push Notification Event Handler
+self.addEventListener('push', (event) => {
+  let data = {
+    title: 'UPAHAR Alert',
+    body: 'New update on your food order',
+    icon: '/icons/customer-192.png',
+    url: '/',
+  };
+
+  try {
+    if (event.data) {
+      data = { ...data, ...event.data.json() };
+    }
+  } catch (e) {
+    if (event.data) {
+      data.body = event.data.text();
+    }
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: data.icon || '/icons/customer-192.png',
+      badge: '/icons/customer-192.png',
+      vibrate: [200, 100, 200, 100, 300],
+      data: { url: data.url || '/' },
+      tag: data.tag || 'upahar-push',
+      renotify: true,
+    })
   );
 });
